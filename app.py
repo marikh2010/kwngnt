@@ -173,6 +173,32 @@ def rerun():
     st.rerun()
 
 
+def render_fill_down(items, label, apply_fn, key_prefix, placeholder=""):
+    """
+    A small 'fill down' control: type one value, say how many rows (counted
+    from the top of the current list), click Isi — that value gets applied
+    to that many items via apply_fn(item, value) and saved immediately.
+    """
+    if not items:
+        return
+    with st.expander(f"⬇ Isi {label} ke Bawah (fill down)"):
+        fc1, fc2, fc3 = st.columns([3, 2, 2])
+        with fc1:
+            fill_value = st.text_input(f"Nilai {label} untuk diisi", key=f"{key_prefix}_fill_value", placeholder=placeholder)
+        with fc2:
+            fill_count = st.number_input(
+                "Bilangan baris (dari atas)", min_value=1, max_value=len(items),
+                value=len(items), step=1, key=f"{key_prefix}_fill_count",
+            )
+        with fc3:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            if st.button(f"⬇ Isi {label}", key=f"{key_prefix}_fill_btn", use_container_width=True):
+                for it in items[: int(fill_count)]:
+                    apply_fn(it, fill_value)
+                st.success(f"{int(fill_count)} baris dikemaskini.")
+                rerun()
+
+
 # --------------------------------------------------------------------------
 # Login
 # --------------------------------------------------------------------------
@@ -1004,6 +1030,24 @@ def render_full_bids_matrix_tab(editable):
     suppliers = STATE["suppliers"]
 
     items = S.items_for_category(STATE, selected_cat)
+
+    if editable:
+        for c in editable_cols:
+            if c["type"] == "supplier-pick":
+                sup_by_name = {s["name"]: s["id"] for s in suppliers}
+                render_fill_down(
+                    items, c["label"],
+                    lambda it, v, cid=c["id"]: S.set_field(it, cid, sup_by_name.get(v.strip()) if v else None),
+                    key_prefix=f"matrix_{c['id']}_{selected_cat}",
+                    placeholder=f"nama penyebut harga, cth: {suppliers[0]['name'] if suppliers else ''}",
+                )
+            else:
+                render_fill_down(
+                    items, c["label"],
+                    lambda it, v, cid=c["id"]: S.set_field(it, cid, v),
+                    key_prefix=f"matrix_{c['id']}_{selected_cat}",
+                )
+
     rows = []
     for idx, it in enumerate(items):
         row = {"id": it["id"], "Bil.": f"{S.category_full_number(STATE, selected_cat)}.{idx+1}",
@@ -1321,6 +1365,19 @@ def render_kewangan_page():
 
     qty_col = next((c for c in STATE["columns"] if c.get("tag") == "quantity"), None)
     catatan_col = next((c for c in STATE["columns"] if c.get("tag") == "catatan"), None)
+
+    def _apply_price(it, v):
+        up, ptext = S.parse_price_input(v)
+        S.set_bid(STATE, it["id"], selected_sup, unit_price=up, price_text=ptext)
+
+    render_fill_down(items, "Harga/Unit", _apply_price, key_prefix=f"kew_price_{selected_cat}_{selected_sup}", placeholder="cth: 100 atau TT")
+    if catatan_col:
+        render_fill_down(
+            items, "Catatan",
+            lambda it, v: S.set_field(it, catatan_col["id"], v),
+            key_prefix=f"kew_catatan_{selected_cat}_{selected_sup}", placeholder="cth: Tiada bekalan",
+        )
+
     rows = []
     for idx, it in enumerate(items):
         bid = S.get_bid(STATE, it["id"], selected_sup)
@@ -1393,6 +1450,17 @@ def render_technical_page():
     statuses = STATE["supplier_matrix"]["statuses"]
     status_hint = " / ".join(s["id"] for s in statuses)
     catatan_col = next((c for c in STATE["columns"] if c.get("tag") == "catatan"), None)
+
+    render_fill_down(
+        items, "Status", lambda it, v: S.set_bid(STATE, it["id"], selected_sup, status=v),
+        key_prefix=f"tek_status_{selected_cat}_{selected_sup}", placeholder=f"cth: {status_hint}",
+    )
+    if catatan_col:
+        render_fill_down(
+            items, "Catatan",
+            lambda it, v: S.set_field(it, catatan_col["id"], v),
+            key_prefix=f"tek_catatan_{selected_cat}_{selected_sup}", placeholder="cth: Tidak berkenaan",
+        )
 
     rows = []
     for idx, it in enumerate(items):
